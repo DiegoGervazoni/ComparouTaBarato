@@ -247,25 +247,42 @@ function validPromotion(p) {
 app.get("/promotions", async (req, res) => {
   try {
     const { region, q } = req.query;
-    const where = [];
+
     const params = [];
+    const whereParts = [
+      "trim(product) <> ''",
+      "trim(store) <> ''",
+      "price is not null",
+      "price > 0"
+    ];
 
     if (region && region !== "Todas") {
-      params.push(region.toLowerCase());
-      where.push("lower(region) = $" + params.length);
+      params.push(String(region).toLowerCase());
+      whereParts.push(`lower(region) = $${params.length}`);
     }
-    if (q) {
-      params.push("%" + q.toLowerCase() + "%");
-      where.push("(lower(product) like $" + params.length + " or lower(brand) like $" + params.length + ")");
+
+    if (q && String(q).trim()) {
+      params.push(`%${String(q).toLowerCase()}%`);
+      // Busca em produto e marca (pode adicionar store se quiser)
+      whereParts.push(`(
+        lower(product) LIKE $${params.length}
+        OR lower(COALESCE(brand,'')) LIKE $${params.length}
+      )`);
+      // alternativa usando ILIKE (sem lower):
+      // params.push(`%${q}%`);
+      // whereParts.push(`(product ILIKE $${params.length} OR COALESCE(brand,'') ILIKE $${params.length})`);
     }
 
     const sql = `
-      select id, product, brand, store, price::float8 as price, unit, category, region, updated_at
-      from promotions
-      ${where.length ? "where " + where.join(" and ") : ""}
-      order by updated_at desc, id desc
-      limit 500
+      SELECT
+        id, product, brand, store, price::float8 AS price,
+        unit, category, region, updated_at
+      FROM promotions
+      ${whereParts.length ? "WHERE " + whereParts.join(" AND ") : ""}
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 500
     `;
+
     const { rows } = await pool.query(sql, params);
     res.json(rows);
   } catch (e) {
@@ -273,6 +290,7 @@ app.get("/promotions", async (req, res) => {
     res.status(500).json({ error: "Erro ao listar promoções" });
   }
 });
+
 
 // Criar
 app.post("/promotions", auth, async (req, res) => {
