@@ -3,6 +3,12 @@
    Executa no Render com PORT e DATABASE_URL
 */
 
+// Carrega variáveis de ambiente localmente (ignorado no Render)
+if (process.env.NODE_ENV !== "production") {
+  require("dotenv").config();
+}
+
+
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
