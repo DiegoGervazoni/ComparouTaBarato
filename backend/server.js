@@ -86,7 +86,6 @@ app.get("/healthz", async (req, res) => {
 
 // ===== Criação automática da tabela
 // ===== Inicialização do banco e carga automática do CSV =====
-const fs = require("fs");
 const path = require("path");
 
 async function ensureSchema() {
