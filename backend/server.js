@@ -1,4 +1,4 @@
-/* server.js – backend Comparou Tá Barato
+/* server.js – Backend Comparou Tá Barato
    Stack: Node + Express + PostgreSQL
    Executa no Render com PORT e DATABASE_URL
 */
@@ -8,15 +8,14 @@ const cors = require("cors");
 const path = require("path");
 const { Pool } = require("pg");
 
-// ===== Config de ambiente
+// ===== Configurações de ambiente
 const PORT = Number(process.env.PORT) || 8081;
 const HOST = "0.0.0.0";
 
-// Conexão Postgres
-// Render fornece DATABASE_URL. Ative SSL sem validar CA.
+// Conexão PostgreSQL (Render fornece DATABASE_URL)
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
-  console.error("DATABASE_URL não definida nas variáveis do serviço");
+  console.error("DATABASE_URL não definida nas variáveis de ambiente.");
   process.exit(1);
 }
 
@@ -25,62 +24,24 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// ===== App
+// ===== Aplicação Express
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-<<<<<<< HEAD
-// ===== Config de Login =====
-const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASS = process.env.ADMIN_PASS || "1234"; // troque em produção
-=======
-// ===== Login simples
+// ===== Login simples (admin)
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "1234";
->>>>>>> a3fd59c67a935979e15bd458e8093a59f1818b1e
 const activeTokens = new Set();
 
-<<<<<<< HEAD
-// ===== Conexão MySQL (usa variáveis de ambiente na nuvem) =====
-// Em desenvolvimento local, ficam os valores padrão abaixo
-const db = mysql.createConnection({
-  host:     process.env.DB_HOST || "localhost",
-  user:     process.env.DB_USER || "root",
-  password: process.env.DB_PASS || "12345",
-  database: process.env.DB_NAME || "comparou",
-  port:     Number(process.env.DB_PORT || 3306),
-});
-
-db.connect((err) => {
-  if (err) {
-    console.error("Erro ao conectar ao MySQL:", err);
-    process.exit(1);
-  }
-  console.log("Conectado ao MySQL!");
-});
-
-// ===== Middleware de autenticação (aceita 'Bearer <token>') =====
-function auth(req, res, next) {
-  const h = req.headers.authorization || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : h;
-  if (token && activeTokens.has(token)) return next();
-  return res.status(401).json({ error: "Não autorizado" });
+function genToken() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-// ===== Rotas de autenticação =====
+// ===== Rotas de autenticação
 app.post("/auth/login", (req, res) => {
-  let { username, password } = req.body || {};
-  username = (username || "").trim();
-  password = (password || "").trim();
+  const { username, password } = req.body || {};
   if (username === ADMIN_USER && password === ADMIN_PASS) {
-=======
-const genToken = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-app.post("/login", (req, res) => {
-  const { user, pass } = req.body || {};
-  if (String(user) === ADMIN_USER && String(pass) === ADMIN_PASS) {
->>>>>>> a3fd59c67a935979e15bd458e8093a59f1818b1e
     const token = genToken();
     activeTokens.add(token);
     return res.json({ ok: true, token });
@@ -88,85 +49,42 @@ app.post("/login", (req, res) => {
   return res.status(401).json({ ok: false, error: "Credenciais inválidas" });
 });
 
-function auth(req, res, next) {
+app.post("/auth/logout", (req, res) => {
   const h = req.headers.authorization || "";
-<<<<<<< HEAD
-  const token = h.startsWith("Bearer ") ? h.slice(7) : h;
-  if (token) activeTokens.delete(token);
+  const token = h.startsWith("Bearer ") ? h.slice(7) : "";
+  if (token && activeTokens.has(token)) {
+    activeTokens.delete(token);
+  }
   res.json({ ok: true });
 });
 
 app.get("/auth/check", (req, res) => {
   const h = req.headers.authorization || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : h;
-  return res.json({ logged: token ? activeTokens.has(token) : false });
+  const token = h.startsWith("Bearer ") ? h.slice(7) : "";
+  res.json({ logged: token ? activeTokens.has(token) : false });
 });
 
-// ===== Rotas de dados =====
-app.get("/promotions", (req, res) => {
-  const sql = `
-    SELECT id, product, brand, store, price, unit, category, region, updated_at
-    FROM promotions
-    ORDER BY updated_at DESC, id DESC`;
-  db.query(sql, (err, results) => {
-    if (err) return res.status(500).json({ error: "Erro ao buscar dados" });
-    res.json(results);
-  });
-});
-
-app.post("/promotions", auth, (req, res) => {
-  const { product, brand, store, price, unit, category, region } = req.body || {};
-  if (!product || !store || price === undefined || price === null || !unit || !category) {
-    return res.status(400).json({ error: "Campos obrigatórios: product, store, price, unit, category" });
-  }
-  const sql = `
-    INSERT INTO promotions (product, brand, store, price, unit, category, region, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`;
-  db.query(
-    sql,
-    [product.trim(), brand || null, store.trim(), Number(price), unit.trim(), category.trim(), region || null],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: "Erro ao inserir promoção" });
-      res.status(201).json({ ok: true, id: result.insertId });
-    }
-  );
-});
-
-app.put("/promotions/:id", auth, (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID inválido" });
-
-  const { product, brand, store, price, unit, category, region } = req.body || {};
-  if (!product || !store || price === undefined || price === null || !unit || !category) {
-    return res.status(400).json({ error: "Campos obrigatórios: product, store, price, unit, category" });
-=======
-  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
-  if (!token || !activeTokens.has(token)) {
-    return res.status(401).json({ error: "Não autorizado" });
-  }
-  next();
+// ===== Middleware de autenticação
+function auth(req, res, next) {
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : "";
+  if (token && activeTokens.has(token)) return next();
+  return res.status(401).json({ error: "Não autorizado" });
 }
 
-// ===== Healthcheck para o Render
+// ===== Healthcheck (Render)
 app.get("/healthz", async (req, res) => {
   try {
     await pool.query("select 1");
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
->>>>>>> a3fd59c67a935979e15bd458e8093a59f1818b1e
   }
 });
 
-// ===== Inicialização do banco
+// ===== Criação automática da tabela
 async function ensureSchema() {
   const sql = `
-<<<<<<< HEAD
-    UPDATE promotions
-       SET product=?, brand=?, store=?, price=?, unit=?, category=?, region=?, updated_at=NOW()
-     WHERE id=?`;
-  const params = [product.trim(), brand || null, store.trim(), Number(price), unit.trim(), category.trim(), region || null, id];
-=======
     create table if not exists promotions (
       id serial primary key,
       product text not null,
@@ -183,13 +101,12 @@ async function ensureSchema() {
   `;
   await pool.query(sql);
 }
->>>>>>> a3fd59c67a935979e15bd458e8093a59f1818b1e
 
 // ===== Utilidades
 function sanitizePromotion(p) {
   return {
     product: String(p.product || "").trim(),
-    brand: String(p.brand || "").trim(),
+    brand: p.brand ? String(p.brand).trim() : null,
     store: String(p.store || "").trim(),
     price: Number(p.price),
     unit: String(p.unit || "").trim(),
@@ -202,25 +119,30 @@ function validPromotion(p) {
   return p.product && Number.isFinite(p.price);
 }
 
-// ===== Rotas CRUD
-// Listagem com filtros opcionais ?region=...&q=...  q procura em product e brand
+// ===== Rotas principais
+// Listagem com filtros opcionais
 app.get("/promotions", async (req, res) => {
   try {
     const { region, q } = req.query;
     const where = [];
     const params = [];
+
     if (region && region !== "Todas") {
-      params.push(String(region).toLowerCase());
+      params.push(region.toLowerCase());
       where.push("lower(region) = $" + params.length);
     }
     if (q) {
-      params.push("%" + String(q).toLowerCase() + "%");
+      params.push("%" + q.toLowerCase() + "%");
       where.push("(lower(product) like $" + params.length + " or lower(brand) like $" + params.length + ")");
     }
-    const sql =
-      "select id, product, brand, store, price::float8 as price, unit, category, region, updated_at from promotions" +
-      (where.length ? " where " + where.join(" and ") : "") +
-      " order by updated_at desc, id desc limit 500";
+
+    const sql = `
+      select id, product, brand, store, price::float8 as price, unit, category, region, updated_at
+      from promotions
+      ${where.length ? "where " + where.join(" and ") : ""}
+      order by updated_at desc, id desc
+      limit 500
+    `;
     const { rows } = await pool.query(sql, params);
     res.json(rows);
   } catch (e) {
@@ -229,39 +151,20 @@ app.get("/promotions", async (req, res) => {
   }
 });
 
-<<<<<<< HEAD
-app.delete("/promotions/:id", auth, (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID inválido" });
-  db.query("DELETE FROM promotions WHERE id = ?", [id], (err, result) => {
-    if (err) return res.status(500).json({ error: "Erro ao excluir promoção" });
-    if (result.affectedRows === 0) return res.status(404).json({ error: "Promoção não encontrada" });
-    res.json({ ok: true, id });
-  });
-});
-
-// ===== Servir o front-end estático =====
-// coloque seus arquivos do front em backend/public (index.html, app.js, style.css)
-app.use(express.static(path.join(__dirname, "public")));
-
-// ===== Start =====
-const PORT = Number(process.env.PORT || 8081);
-const HOST = "0.0.0.0";
-app.listen(PORT, HOST, () => {
-  console.log(`Servidor rodando em http://${HOST}:${PORT}`);
-  console.log(`Abra no PC:  http://localhost:${PORT}`);
-=======
 // Criar
 app.post("/promotions", auth, async (req, res) => {
   try {
     const p = sanitizePromotion(req.body || {});
-    if (!validPromotion(p)) {
-      return res.status(400).json({ error: "Campos obrigatórios ausentes" });
-    }
-    const sql =
-      "insert into promotions (product, brand, store, price, unit, category, region) values ($1,$2,$3,$4,$5,$6,$7) returning id, product, brand, store, price::float8 as price, unit, category, region, updated_at";
-    const params = [p.product, p.brand, p.store, p.price, p.unit, p.category, p.region];
-    const { rows } = await pool.query(sql, params);
+    if (!validPromotion(p)) return res.status(400).json({ error: "Campos obrigatórios ausentes" });
+
+    const sql = `
+      insert into promotions (product, brand, store, price, unit, category, region)
+      values ($1,$2,$3,$4,$5,$6,$7)
+      returning id, product, brand, store, price::float8 as price, unit, category, region, updated_at
+    `;
+    const { rows } = await pool.query(sql, [
+      p.product, p.brand, p.store, p.price, p.unit, p.category, p.region,
+    ]);
     res.status(201).json(rows[0]);
   } catch (e) {
     console.error(e);
@@ -276,20 +179,23 @@ app.put("/promotions/:id", auth, async (req, res) => {
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID inválido" });
 
     const p = sanitizePromotion(req.body || {});
-    if (!validPromotion(p)) {
-      return res.status(400).json({ error: "Campos obrigatórios ausentes" });
-    }
-    const sql =
-      "update promotions set product=$1, brand=$2, store=$3, price=$4, unit=$5, category=$6, region=$7, updated_at=now() where id=$8 returning id, product, brand, store, price::float8 as price, unit, category, region, updated_at";
-    const params = [p.product, p.brand, p.store, p.price, p.unit, p.category, p.region, id];
-    const { rows } = await pool.query(sql, params);
+    if (!validPromotion(p)) return res.status(400).json({ error: "Campos obrigatórios ausentes" });
+
+    const sql = `
+      update promotions
+      set product=$1, brand=$2, store=$3, price=$4, unit=$5, category=$6, region=$7, updated_at=now()
+      where id=$8
+      returning id, product, brand, store, price::float8 as price, unit, category, region, updated_at
+    `;
+    const { rows } = await pool.query(sql, [
+      p.product, p.brand, p.store, p.price, p.unit, p.category, p.region, id,
+    ]);
     if (!rows.length) return res.status(404).json({ error: "Registro não encontrado" });
     res.json(rows[0]);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Erro ao atualizar promoção" });
   }
->>>>>>> a3fd59c67a935979e15bd458e8093a59f1818b1e
 });
 
 // Deletar
@@ -307,24 +213,15 @@ app.delete("/promotions/:id", auth, async (req, res) => {
   }
 });
 
-// ===== Front-end estático
+// ===== Servir o frontend estático
 app.use(express.static(path.join(__dirname, "public")));
 
-// Qualquer rota não API devolve index.html
-app.get("*", (req, res, next) => {
-  if (req.path.startsWith("/promotions") || req.path.startsWith("/login") || req.path.startsWith("/healthz")) {
-    return next();
-  }
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
-
-// ===== Start
+// ===== Iniciar servidor
 (async () => {
   try {
     await ensureSchema();
     app.listen(PORT, HOST, () => {
       console.log(`Servidor rodando em http://${HOST}:${PORT}`);
-      console.log(`Abra no PC:  http://localhost:${PORT}`);
     });
   } catch (e) {
     console.error("Falha ao iniciar:", e);
