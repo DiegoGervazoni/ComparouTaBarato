@@ -118,18 +118,41 @@ async function ensureSchema() {
       }
 
       console.log("📦 Tabela vazia. Iniciando importação do CSV...");
-      const csvLines = fs.readFileSync(filePath, "utf8").trim().split("\n").slice(1);
+      const raw = fs.readFileSync(filePath, "utf8").trim();
+      const lines = raw.split(/\r?\n/);
+      const header = lines.shift(); // remove cabeçalho
 
-      for (const line of csvLines) {
-        const cols = line.split(","); // CSV simples: sem vírgulas dentro de campos
-        if (cols.length < 7) continue;
-        const [product, brand, store, price, unit, category, region] = cols.map(v => v.trim());
-        await pool.query(
-          "INSERT INTO promotions (product, brand, store, price, unit, category, region) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-          [product, brand || null, store, Number(price), unit, category, region]
-        );
+      // Detecta delimitador do CSV (',' ou ';')
+      const delim = header.includes(";") ? ";" : ",";
+
+      let inserted = 0, skipped = 0;
+      for (const line of lines) {
+        if (!line.trim()) { skipped++; continue; }
+
+        // remove aspas externas de cada campo e aparas
+        const cols = line.split(delim).map(v => v.replace(/^"(.*)"$/, "$1").trim());
+        if (cols.length < 7) { skipped++; continue; }
+
+        let [product, brand, store, price, unit, category, region] = cols;
+
+        // normaliza preço: "24,90" -> 24.90
+        const priceNum = Number(String(price).replace(",", "."));
+        if (!Number.isFinite(priceNum)) { skipped++; continue; }
+
+        try {
+          await pool.query(
+            `insert into promotions (product, brand, store, price, unit, category, region)
+             values ($1,$2,$3,$4,$5,$6,$7)`,
+            [product, brand || null, store, priceNum, unit, category, region]
+          );
+          inserted++;
+        } catch (e) {
+          console.log("linha pulada por erro:", e.message);
+          skipped++;
+        }
       }
-      console.log(`✅ Importação concluída (${csvLines.length} registros adicionados).`);
+
+      console.log(`✅ Importação concluída. Inseridos: ${inserted}, puladas: ${skipped}, total lidas: ${lines.length}.`);
     } else {
       console.log(`ℹ️ A tabela já contém ${count} registros. Nenhuma importação necessária.`);
     }
