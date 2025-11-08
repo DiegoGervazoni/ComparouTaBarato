@@ -110,56 +110,113 @@ async function ensureSchema() {
     const { rows } = await pool.query("SELECT COUNT(*) FROM promotions");
     const count = Number(rows[0].count);
 
-    if (count === 0) {
-      const filePath = path.join(__dirname, "produtos_utf8.csv");
-      if (!fs.existsSync(filePath)) {
-        console.log("ℹ️ produtos_utf8.csv não encontrado; pulando importação inicial.");
-        return;
-      }
-
-      console.log("📦 Tabela vazia. Iniciando importação do CSV...");
-      const raw = fs.readFileSync(filePath, "utf8").trim();
-      const lines = raw.split(/\r?\n/);
-      const header = lines.shift(); // remove cabeçalho
-
-      // Detecta delimitador do CSV (',' ou ';')
-      const delim = header.includes(";") ? ";" : ",";
-
-      let inserted = 0, skipped = 0;
-      for (const line of lines) {
-        if (!line.trim()) { skipped++; continue; }
-
-        // remove aspas externas de cada campo e aparas
-        const cols = line.split(delim).map(v => v.replace(/^"(.*)"$/, "$1").trim());
-        if (cols.length < 7) { skipped++; continue; }
-
-        let [product, brand, store, price, unit, category, region] = cols;
-
-        // normaliza preço: "24,90" -> 24.90
-        const priceNum = Number(String(price).replace(",", "."));
-        if (!Number.isFinite(priceNum)) { skipped++; continue; }
-
-        try {
-          await pool.query(
-            `insert into promotions (product, brand, store, price, unit, category, region)
-             values ($1,$2,$3,$4,$5,$6,$7)`,
-            [product, brand || null, store, priceNum, unit, category, region]
-          );
-          inserted++;
-        } catch (e) {
-          console.log("linha pulada por erro:", e.message);
-          skipped++;
-        }
-      }
-
-      console.log(`✅ Importação concluída. Inseridos: ${inserted}, puladas: ${skipped}, total lidas: ${lines.length}.`);
-    } else {
+    if (count !== 0) {
       console.log(`ℹ️ A tabela já contém ${count} registros. Nenhuma importação necessária.`);
+      return;
     }
+
+    const filePath = path.join(__dirname, "produtos_utf8.csv");
+    if (!fs.existsSync(filePath)) {
+      console.log("ℹ️ produtos_utf8.csv não encontrado; pulando importação inicial.");
+      return;
+    }
+
+    console.log("📦 Tabela vazia. Iniciando importação do CSV...");
+
+    const raw = fs.readFileSync(filePath, "utf8");
+    // quebra linhas e remove linhas totalmente vazias
+    const all = raw.split(/\r?\n/).map(l => l.trim());
+    const nonEmpty = all.filter(l => l.length);
+
+    // encontra a linha de cabeçalho (procura “produto” e “preço/preco”)
+    const headerIdx = nonEmpty.findIndex(l => /produto/i.test(l) && /(preç|preco)/i.test(l));
+    if (headerIdx === -1) {
+      console.log("❌ Não encontrei cabeçalho com colunas 'Produto' e 'Preço'. Verifique o CSV.");
+      return;
+    }
+
+    const headerLine = nonEmpty[headerIdx];
+    const dataLines  = nonEmpty.slice(headerIdx + 1);
+    const delim = headerLine.includes(";") ? ";" : ",";
+
+    const headers = headerLine
+      .split(delim)
+      .map(h => h.replace(/^"(.*)"$/, "$1").trim().toLowerCase());
+
+    // helper para achar índice por possíveis rótulos
+    const findIdx = (...cands) => {
+      const i = headers.findIndex(h => cands.some(c => h === c || h.includes(c)));
+      return i === -1 ? null : i;
+    };
+
+    const iProduto = findIdx("produto");
+    const iMarca   = findIdx("marca");
+    const iLoja    = findIdx("loja/supermercado", "loja", "supermercado");
+    const iPreco   = findIdx("preço", "preco");
+    const iQtd     = findIdx("quantidade", "qtd");
+    const iUnid    = findIdx("unidade", "uni");
+    const iCat     = findIdx("categoria");
+    const iReg     = findIdx("região", "regiao");
+
+    const normCat = (s = "") => {
+      s = s.trim().toLowerCase();
+      if (s.includes("cesta")) return "cesta_basica";
+      if (s.includes("horti")) return "hortifruti";
+      if (s.includes("limp"))  return "limpeza";
+      return "outras";
+    };
+
+    let inserted = 0, skipped = 0;
+
+    for (const line of dataLines) {
+      if (!line.trim()) { skipped++; continue; }
+
+      const cols = line
+        .split(delim)
+        .map(v => v.replace(/^"(.*)"$/, "$1").trim());
+
+      const get = (i) => (i == null || i >= cols.length) ? "" : cols[i];
+
+      const product  = get(iProduto);
+      const brand    = get(iMarca) || null;
+      const store    = get(iLoja);
+      const priceStr = get(iPreco);
+      const qtd      = get(iQtd);
+      const unid     = get(iUnid);
+      const category = normCat(get(iCat));
+      const region   = get(iReg) || null;
+
+      // monta unit: “900 mililitro” se houver quantidade
+      const unit = [qtd, unid].filter(Boolean).join(" ").trim() || unid || "un";
+
+      // normaliza preço: "24,90" -> 24.90
+      const priceNum = Number(String(priceStr).replace(",", "."));
+
+      // validações mínimas
+      if (!product || !store || !Number.isFinite(priceNum)) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        await pool.query(
+          `insert into promotions (product, brand, store, price, unit, category, region)
+           values ($1,$2,$3,$4,$5,$6,$7)`,
+          [product, brand, store, priceNum, unit, category, region]
+        );
+        inserted++;
+      } catch (e) {
+        console.log("linha pulada por erro:", e.message);
+        skipped++;
+      }
+    }
+
+    console.log(`✅ Importação concluída. Inseridos: ${inserted}, puladas: ${skipped}, total lidas: ${dataLines.length}.`);
   } catch (e) {
     console.error("❌ Erro ao importar CSV:", e.message);
   }
 }
+
 
 
 // ===== Utilidades
