@@ -5,8 +5,10 @@
 
 const express = require("express");
 const cors = require("cors");
-const path = require("path");
+const path = require("path");   // <- mantém só esta
+const fs = require("fs");       // <- adiciona aqui UMA vez
 const { Pool } = require("pg");
+
 
 // ===== Configurações de ambiente
 const PORT = Number(process.env.PORT) || 8081;
@@ -106,24 +108,30 @@ async function ensureSchema() {
   await pool.query(sql);
   console.log("✅ Estrutura da tabela garantida.");
 
-  // ===== Carga automática do CSV se estiver vazio =====
   try {
     const { rows } = await pool.query("SELECT COUNT(*) FROM promotions");
     const count = Number(rows[0].count);
+
     if (count === 0) {
-      console.log("📦 Tabela vazia. Iniciando importação do CSV...");
       const filePath = path.join(__dirname, "produtos_utf8.csv");
-      const csv = fs.readFileSync(filePath, "utf8").trim().split("\n").slice(1);
-      for (const line of csv) {
-        const cols = line.split(",");
-        if (cols.length < 7) continue; // ignora linhas incompletas
+      if (!fs.existsSync(filePath)) {
+        console.log("ℹ️ produtos_utf8.csv não encontrado; pulando importação inicial.");
+        return;
+      }
+
+      console.log("📦 Tabela vazia. Iniciando importação do CSV...");
+      const csvLines = fs.readFileSync(filePath, "utf8").trim().split("\n").slice(1);
+
+      for (const line of csvLines) {
+        const cols = line.split(","); // CSV simples: sem vírgulas dentro de campos
+        if (cols.length < 7) continue;
         const [product, brand, store, price, unit, category, region] = cols.map(v => v.trim());
         await pool.query(
           "INSERT INTO promotions (product, brand, store, price, unit, category, region) VALUES ($1,$2,$3,$4,$5,$6,$7)",
           [product, brand || null, store, Number(price), unit, category, region]
         );
       }
-      console.log(`✅ Importação concluída (${csv.length} registros adicionados).`);
+      console.log(`✅ Importação concluída (${csvLines.length} registros adicionados).`);
     } else {
       console.log(`ℹ️ A tabela já contém ${count} registros. Nenhuma importação necessária.`);
     }
@@ -131,6 +139,7 @@ async function ensureSchema() {
     console.error("❌ Erro ao importar CSV:", e.message);
   }
 }
+
 
 // ===== Utilidades
 function sanitizePromotion(p) {
