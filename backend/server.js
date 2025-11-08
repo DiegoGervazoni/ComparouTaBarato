@@ -5,8 +5,8 @@
 
 const express = require("express");
 const cors = require("cors");
-const path = require("path");   // <- mantém só esta
-const fs = require("fs");       // <- adiciona aqui UMA vez
+const path = require("path");
+const fs = require("fs");
 const { Pool } = require("pg");
 
 
